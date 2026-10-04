@@ -19,13 +19,21 @@ class ConnectionTestResult {
 }
 
 class SupabaseService {
-  static SupabaseClient get client => Supabase.instance.client;
+  static bool _isInitialized = false;
+
+  static bool get isConfigured => Config.supabaseKey.isNotEmpty && _isInitialized;
+
+  static SupabaseClient get client {
+    if (!_isInitialized) {
+      throw StateError('Supabase is not initialized. Call SupabaseService.initialize() first.');
+    }
+    return Supabase.instance.client;
+  }
+
   final DeviceService _deviceService = DeviceService();
 
-  static bool get isConfigured => Config.supabaseKey.isNotEmpty;
-
   static Future<void> initialize() async {
-    if (!isConfigured) {
+    if (Config.supabaseKey.isEmpty) {
       debugPrint(
         'WARNING: Config.supabaseKey is empty. '
         'Provide credentials via --dart-define-from-file=.env to connect to live Supabase.',
@@ -33,25 +41,41 @@ class SupabaseService {
       return;
     }
 
+    if (_isInitialized) return;
+
     try {
       await Supabase.initialize(
         url: Config.supabaseUrl,
         publishableKey: Config.supabaseKey,
       );
+      _isInitialized = true;
       debugPrint('Supabase initialized successfully.');
     } catch (e) {
-      debugPrint('Supabase initialization failed: $e');
+      final errStr = e.toString();
+      if (errStr.contains('has already been initialized')) {
+        _isInitialized = true;
+        debugPrint('Supabase was already initialized.');
+      } else {
+        _isInitialized = false;
+        debugPrint('Supabase initialization failed: $e');
+      }
     }
   }
 
   /// Live connection test returning latency and participant count
   Future<ConnectionTestResult> testConnection() async {
+    if (!_isInitialized && Config.supabaseKey.isNotEmpty) {
+      await initialize();
+    }
+
     if (!isConfigured) {
       return ConnectionTestResult(
         isConnected: false,
         latencyMs: 0,
         participantCount: 0,
-        errorMessage: 'Supabase credentials are not configured in the app.',
+        errorMessage: Config.supabaseKey.isEmpty
+            ? 'Supabase credentials are not configured in the app.'
+            : 'Supabase initialization failed. Check your network connection.',
       );
     }
 
@@ -82,6 +106,9 @@ class SupabaseService {
 
   /// Fetch all event participants
   Future<List<Participant>> fetchAllParticipants() async {
+    if (!isConfigured && Config.supabaseKey.isNotEmpty) {
+      await initialize();
+    }
     if (!isConfigured) return [];
     try {
       final response = await client.from('event_participants').select();
@@ -96,6 +123,9 @@ class SupabaseService {
 
   /// Fetch all meal redemption records
   Future<List<Map<String, dynamic>>> fetchAllMealRedemptions() async {
+    if (!isConfigured && Config.supabaseKey.isNotEmpty) {
+      await initialize();
+    }
     if (!isConfigured) return [];
     try {
       final response = await client.from('meal_redemptions').select();
@@ -109,6 +139,9 @@ class SupabaseService {
   /// Check-in attendee at registration desk
   /// Uses live Supabase RPC: verify_and_checkin(p_id, scanner_id)
   Future<Map<String, dynamic>> checkInAttendee(String participantId) async {
+    if (!isConfigured && Config.supabaseKey.isNotEmpty) {
+      await initialize();
+    }
     if (!isConfigured) {
       throw Exception('Supabase is not configured.');
     }
@@ -134,6 +167,9 @@ class SupabaseService {
     String? organization,
     String? eventId,
   }) async {
+    if (!isConfigured && Config.supabaseKey.isNotEmpty) {
+      await initialize();
+    }
     if (!isConfigured) {
       throw Exception('Supabase is not configured.');
     }
@@ -160,6 +196,9 @@ class SupabaseService {
     required String participantId,
     required String sessionName,
   }) async {
+    if (!isConfigured && Config.supabaseKey.isNotEmpty) {
+      await initialize();
+    }
     if (!isConfigured) {
       throw Exception('Supabase is not configured.');
     }

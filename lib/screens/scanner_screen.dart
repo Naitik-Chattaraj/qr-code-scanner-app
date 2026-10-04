@@ -133,9 +133,27 @@ class _ScannerScreenState extends State<ScannerScreen> {
         final status = (res['status'] ?? '').toString().toUpperCase();
         final name = (res['name'] ?? payload.name ?? 'Attendee').toString();
         final org = (res['organization'] ?? payload.organization ?? '').toString();
-        final scannedAt = res['scanned_at']?.toString();
+        final scannedAt = (res['registered_at'] ?? res['scanned_at'])?.toString();
 
         if (status == 'SUCCESS' || status == 'REGISTRATION_SUCCESS') {
+          // Update local cache for offline consistency
+          final nowIso = DateTime.now().toUtc().toIso8601String();
+          _localDb.updateParticipant(
+            Participant(
+              participantId: payload.participantId,
+              eventId: payload.eventId ?? '',
+              name: name,
+              email: payload.email ?? '',
+              mobileNumber: payload.mobileNumber ?? '',
+              organization: org,
+              isRegistered: true,
+              registeredAt: nowIso,
+              scannedAt: nowIso,
+              scannedBy: _deviceId,
+              dinnerStatus: false,
+            ),
+          );
+
           _showSuccess(
             'Check-in Successful',
             {'name': name, 'organization': org, 'details': 'Welcome to AICSSYC 2026!'},
@@ -230,6 +248,15 @@ class _ScannerScreenState extends State<ScannerScreen> {
         final scannedAt = res['scanned_at']?.toString();
 
         if (status == 'SUCCESS') {
+          // Update local DB cache for consistency
+          _localDb.addMealRedemption(
+            DateTime.now().microsecondsSinceEpoch.toString(),
+            ticketId,
+            _selectedMealSession,
+            _deviceId,
+            scannedAt: scannedAt,
+          );
+
           _showSuccess(
             'Meal Access Granted',
             {

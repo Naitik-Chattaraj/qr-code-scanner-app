@@ -197,10 +197,10 @@ class LocalDatabase {
 
   Future<int> getCheckedInCount() async {
     final db = await instance.database;
-    // An attendee is checked in when scanned_at is not null
+    // An attendee is checked in when is_registered = 1, scanned_at is not null, or registered_at is not null
     return Sqflite.firstIntValue(
           await db.rawQuery(
-            'SELECT COUNT(*) FROM event_participants WHERE scanned_at IS NOT NULL',
+            'SELECT COUNT(*) FROM event_participants WHERE is_registered = 1 OR scanned_at IS NOT NULL OR registered_at IS NOT NULL',
           ),
         ) ??
         0;

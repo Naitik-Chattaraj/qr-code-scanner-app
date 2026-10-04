@@ -11,7 +11,8 @@ class Config {
   /// Pass at compile-time via --dart-define=SUPABASE_KEY=... or --dart-define-from-file=.env
   static const String supabaseKey = String.fromEnvironment(
     'SUPABASE_KEY',
-    defaultValue: '',
+    defaultValue:
+        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh3aW1weWh4d3dnanlsZHJla3BmIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc5MDA3ODA1MiwiZXhwIjoyMTA1NjU0MDUyfQ.UOylSc-p99stsy789QxcMs7Aqoep7lW9-SiBCDR9RLo',
   );
 
   /// Staff team access passcode for the scanner app.
