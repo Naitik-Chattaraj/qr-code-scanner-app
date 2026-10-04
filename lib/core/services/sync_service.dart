@@ -10,7 +10,7 @@ class SyncService {
   final LocalDatabase _localDb = LocalDatabase.instance;
   final SupabaseService _supabaseService = SupabaseService();
   final Connectivity _connectivity = Connectivity();
-  
+
   bool _isSyncing = false;
   Timer? _periodicSyncTimer;
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
@@ -22,12 +22,12 @@ class SyncService {
         syncData();
       }
     });
-    
+
     // Initial sync
     await syncData();
-    
-    // Periodic sync every 5 minutes
-    _periodicSyncTimer = Timer.periodic(const Duration(minutes: 5), (_) => syncData());
+
+    // Periodic sync every 2 minutes
+    _periodicSyncTimer = Timer.periodic(const Duration(minutes: 2), (_) => syncData());
   }
 
   void dispose() {
@@ -36,8 +36,12 @@ class SyncService {
   }
 
   Future<bool> isOnline() async {
-    final results = await _connectivity.checkConnectivity();
-    return results.any((r) => r != ConnectivityResult.none);
+    try {
+      final results = await _connectivity.checkConnectivity();
+      return results.any((r) => r != ConnectivityResult.none);
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<void> syncData() async {
@@ -47,7 +51,7 @@ class SyncService {
 
     _isSyncing = true;
     try {
-      // 1. Push pending actions from queue
+      // 1. Push pending actions from offline queue
       final queue = await _localDb.getQueue();
       for (var item in queue) {
         final action = item['action'] as String;
@@ -56,12 +60,15 @@ class SyncService {
 
         try {
           final payload = jsonDecode(payloadStr) as Map<String, dynamic>;
-          if (action == 'register_attendee') {
-            await _supabaseService.registerAttendee(payload['p_id'] as String);
+          final pId = payload['p_id'] as String;
+
+          if (action == 'verify_and_checkin' || action == 'check_in_attendee' || action == 'register_attendee') {
+            await _supabaseService.checkInAttendee(pId);
           } else if (action == 'verify_meal_access') {
+            final session = payload['p_session'] as String;
             await _supabaseService.verifyMealAccess(
-              payload['p_id'] as String,
-              payload['p_session'] as String,
+              participantId: pId,
+              sessionName: session,
             );
           }
           await _localDb.removeFromQueue(id);
@@ -70,21 +77,21 @@ class SyncService {
         }
       }
 
-      // 2. Pull down fresh data from Supabase
+      // 2. Pull down fresh participants snapshot
       final participants = await _supabaseService.fetchAllParticipants();
       if (participants.isNotEmpty) {
         await _localDb.insertParticipants(participants);
       }
-      
+
+      // 3. Pull down fresh meal redemptions snapshot
       final redemptions = await _supabaseService.fetchAllMealRedemptions();
       if (redemptions.isNotEmpty) {
-         await _localDb.insertMealRedemptions(redemptions);
+        await _localDb.insertMealRedemptions(redemptions);
       }
-      
-      // Update last sync time
+
+      // 4. Update last sync time
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('last_sync', DateTime.now().toIso8601String());
-      
+      await prefs.setString('last_sync', DateTime.now().toUtc().toIso8601String());
     } catch (e) {
       debugPrint('Sync failed: $e');
     } finally {

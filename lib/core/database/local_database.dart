@@ -21,36 +21,38 @@ class LocalDatabase {
 
     return await openDatabase(
       path,
-      version: 1,
+      version: 2,
       onCreate: _createDB,
+      onUpgrade: _upgradeDB,
     );
   }
 
   Future<void> _createDB(Database db, int version) async {
-    // Participants table (mirror of Supabase)
+    // Participants table matching live Supabase event_participants
     await db.execute('''
       CREATE TABLE event_participants (
-        id TEXT PRIMARY KEY,
+        participant_id TEXT PRIMARY KEY,
+        event_id TEXT,
         name TEXT,
         email TEXT,
-        mobile TEXT,
+        mobile_number TEXT,
         organization TEXT,
-        event_id TEXT,
-        reg_status TEXT,
-        is_checked_in INTEGER,
-        checked_in_at TEXT,
-        checked_in_by TEXT,
-        total_meals_taken INTEGER DEFAULT 0
+        is_registered INTEGER,
+        registered_at TEXT,
+        scanned_at TEXT,
+        scanned_by TEXT,
+        dinner_status INTEGER,
+        dinner_scanned_at TEXT
       )
     ''');
 
-    // Meal redemptions table
+    // Meal redemptions table matching live Supabase meal_redemptions
     await db.execute('''
       CREATE TABLE meal_redemptions (
         id TEXT PRIMARY KEY,
         participant_id TEXT,
-        session_name TEXT,
-        redeemed_at TEXT,
+        meal_session TEXT,
+        scanned_at TEXT,
         scanned_by TEXT
       )
     ''');
@@ -66,6 +68,15 @@ class LocalDatabase {
     ''');
   }
 
+  Future<void> _upgradeDB(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      await db.execute('DROP TABLE IF EXISTS event_participants');
+      await db.execute('DROP TABLE IF EXISTS meal_redemptions');
+      await db.execute('DROP TABLE IF EXISTS sync_queue');
+      await _createDB(db, newVersion);
+    }
+  }
+
   // --- Participants ---
   Future<void> clearParticipants() async {
     final db = await instance.database;
@@ -74,9 +85,13 @@ class LocalDatabase {
 
   Future<void> insertParticipants(List<Participant> participants) async {
     final db = await instance.database;
-    Batch batch = db.batch();
+    final batch = db.batch();
     for (var p in participants) {
-      batch.insert('event_participants', p.toJson(), conflictAlgorithm: ConflictAlgorithm.replace);
+      batch.insert(
+        'event_participants',
+        p.toJson(),
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
     }
     await batch.commit(noResult: true);
   }
@@ -85,15 +100,14 @@ class LocalDatabase {
     final db = await instance.database;
     final maps = await db.query(
       'event_participants',
-      where: 'id = ? OR event_id = ?',
+      where: 'participant_id = ? OR event_id = ?',
       whereArgs: [id, id],
     );
 
     if (maps.isNotEmpty) {
       return Participant.fromJson(maps.first);
-    } else {
-      return null;
     }
+    return null;
   }
 
   Future<void> updateParticipant(Participant participant) async {
@@ -101,8 +115,8 @@ class LocalDatabase {
     await db.update(
       'event_participants',
       participant.toJson(),
-      where: 'id = ?',
-      whereArgs: [participant.id],
+      where: 'participant_id = ?',
+      whereArgs: [participant.participantId],
     );
   }
 
@@ -110,9 +124,9 @@ class LocalDatabase {
     final db = await instance.database;
     final maps = await db.query(
       'event_participants',
-      where: 'name LIKE ? OR email LIKE ? OR event_id LIKE ?',
+      where: 'name LIKE ? OR email LIKE ? OR participant_id LIKE ?',
       whereArgs: ['%$query%', '%$query%', '%$query%'],
-      limit: 10,
+      limit: 20,
     );
     return maps.map((map) => Participant.fromJson(map)).toList();
   }
@@ -125,9 +139,19 @@ class LocalDatabase {
 
   Future<void> insertMealRedemptions(List<Map<String, dynamic>> redemptions) async {
     final db = await instance.database;
-    Batch batch = db.batch();
+    final batch = db.batch();
     for (var r in redemptions) {
-      batch.insert('meal_redemptions', r, conflictAlgorithm: ConflictAlgorithm.replace);
+      batch.insert(
+        'meal_redemptions',
+        {
+          'id': r['id']?.toString() ?? '',
+          'participant_id': r['participant_id']?.toString() ?? '',
+          'meal_session': r['meal_session']?.toString() ?? '',
+          'scanned_at': r['scanned_at']?.toString() ?? '',
+          'scanned_by': r['scanned_by']?.toString() ?? '',
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
     }
     await batch.commit(noResult: true);
   }
@@ -135,37 +159,59 @@ class LocalDatabase {
   Future<bool> hasRedeemedMeal(String participantId, String sessionName) async {
     final db = await instance.database;
     final count = Sqflite.firstIntValue(await db.rawQuery(
-      'SELECT COUNT(*) FROM meal_redemptions WHERE participant_id = ? AND session_name = ?',
-      [participantId, sessionName]
+      'SELECT COUNT(*) FROM meal_redemptions WHERE participant_id = ? AND meal_session = ?',
+      [participantId, sessionName],
     ));
     return (count ?? 0) > 0;
   }
 
-  Future<void> addMealRedemption(String id, String participantId, String sessionName, String scannedBy) async {
+  Future<void> addMealRedemption(
+    String id,
+    String participantId,
+    String sessionName,
+    String scannedBy, {
+    String? scannedAt,
+  }) async {
     final db = await instance.database;
-    await db.insert('meal_redemptions', {
-      'id': id,
-      'participant_id': participantId,
-      'session_name': sessionName,
-      'redeemed_at': DateTime.now().toIso8601String(),
-      'scanned_by': scannedBy,
-    });
+    await db.insert(
+      'meal_redemptions',
+      {
+        'id': id,
+        'participant_id': participantId,
+        'meal_session': sessionName,
+        'scanned_at': scannedAt ?? DateTime.now().toUtc().toIso8601String(),
+        'scanned_by': scannedBy,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
   }
 
   // --- Stats ---
   Future<int> getTotalParticipants() async {
     final db = await instance.database;
-    return Sqflite.firstIntValue(await db.rawQuery('SELECT COUNT(*) FROM event_participants')) ?? 0;
+    return Sqflite.firstIntValue(
+          await db.rawQuery('SELECT COUNT(*) FROM event_participants'),
+        ) ??
+        0;
   }
 
   Future<int> getCheckedInCount() async {
     final db = await instance.database;
-    return Sqflite.firstIntValue(await db.rawQuery('SELECT COUNT(*) FROM event_participants WHERE is_checked_in = 1')) ?? 0;
+    // An attendee is checked in when scanned_at is not null
+    return Sqflite.firstIntValue(
+          await db.rawQuery(
+            'SELECT COUNT(*) FROM event_participants WHERE scanned_at IS NOT NULL',
+          ),
+        ) ??
+        0;
   }
 
   Future<int> getMealsServedCount() async {
     final db = await instance.database;
-    return Sqflite.firstIntValue(await db.rawQuery('SELECT COUNT(*) FROM meal_redemptions')) ?? 0;
+    return Sqflite.firstIntValue(
+          await db.rawQuery('SELECT COUNT(*) FROM meal_redemptions'),
+        ) ??
+        0;
   }
 
   // --- Sync Queue ---
@@ -174,7 +220,7 @@ class LocalDatabase {
     await db.insert('sync_queue', {
       'action': action,
       'payload': jsonEncode(payload),
-      'created_at': DateTime.now().toIso8601String(),
+      'created_at': DateTime.now().toUtc().toIso8601String(),
     });
   }
 
