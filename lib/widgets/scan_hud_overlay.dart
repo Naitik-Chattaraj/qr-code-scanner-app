@@ -5,79 +5,45 @@ import '../core/models/scan_result.dart';
 class ScanHudOverlay extends StatelessWidget {
   final bool isProcessing;
   final ScanResultData? scanResult;
+  final VoidCallback? onDismiss;
 
   const ScanHudOverlay({
     super.key,
     required this.isProcessing,
     this.scanResult,
+    this.onDismiss,
   });
 
   @override
   Widget build(BuildContext context) {
-    Color borderColor = Colors.white54;
     Color statusBgColor = Colors.white;
     IconData statusIcon = Icons.qr_code_scanner;
 
     if (scanResult != null) {
       if (scanResult!.status == 'success') {
-        borderColor = AppColors.success;
-        statusBgColor = const Color(0xFFECFDF5);
-        statusIcon = Icons.check_circle_rounded;
+        statusBgColor = AppColors.success;
+        statusIcon = Icons.check_circle_outline;
       } else if (scanResult!.status == 'warning') {
-        borderColor = AppColors.warning;
-        statusBgColor = const Color(0xFFFFFBEB);
+        statusBgColor = AppColors.warning;
         statusIcon = Icons.warning_amber_rounded;
       } else if (scanResult!.status == 'error') {
-        borderColor = AppColors.error;
-        statusBgColor = const Color(0xFFFEF2F2);
-        statusIcon = Icons.cancel_rounded;
+        statusBgColor = AppColors.error;
+        statusIcon = Icons.cancel_outlined;
       }
     }
 
     return Stack(
       children: [
-        // Dark overlay outside the scanning area
-        ColorFiltered(
-          colorFilter: ColorFilter.mode(
-            Colors.black.withValues(alpha: 0.5),
-            BlendMode.srcOut,
-          ),
-          child: Stack(
-            children: [
-              Container(
-                decoration: const BoxDecoration(
-                  color: Colors.black,
-                  backgroundBlendMode: BlendMode.dstOut,
-                ),
-              ),
-              Center(
-                child: Container(
-                  width: 260,
-                  height: 260,
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-
-        // Scanning Reticle Frame
-        Center(
-          child: Container(
-            width: 260,
-            height: 260,
-            decoration: BoxDecoration(
-              border: Border.all(color: borderColor, width: 3.5),
-              borderRadius: BorderRadius.circular(20),
+        // Default Scanner View (hardware-accelerated, flicker-free CustomPaint)
+        if (scanResult == null)
+          const Positioned.fill(
+            child: CustomPaint(
+              painter: ScannerOverlayPainter(),
             ),
           ),
-        ),
 
         // Processing Spinner Indicator
-        if (isProcessing)
+        if (isProcessing && scanResult == null)
           Center(
             child: Container(
               padding: const EdgeInsets.all(20),
@@ -106,109 +72,117 @@ class ScanHudOverlay extends StatelessWidget {
             ),
           ),
 
-        // Result Card Modal at Bottom
+        // Result Solid Overlay
         if (scanResult != null)
-          Positioned(
-            bottom: 30,
-            left: 20,
-            right: 20,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 300),
-              padding: const EdgeInsets.all(18),
-              decoration: BoxDecoration(
-                color: statusBgColor,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: borderColor, width: 2),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Colors.black26,
-                    blurRadius: 16,
-                    offset: Offset(0, 6),
-                  ),
-                ],
-              ),
+          Positioned.fill(
+            child: Container(
+              color: statusBgColor,
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
               child: Column(
-                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Row(
-                    children: [
-                      Icon(statusIcon, color: borderColor, size: 36),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          scanResult!.message,
-                          style: TextStyle(
-                            color: borderColor,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 18,
-                          ),
-                        ),
-                      ),
-                    ],
+                  const Spacer(),
+                  // Icon
+                  Container(
+                    width: 100,
+                    height: 100,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.2),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 4),
+                    ),
+                    child: Icon(statusIcon, size: 64, color: Colors.white),
                   ),
-                  if (scanResult!.data != null &&
-                      scanResult!.data!.isNotEmpty) ...[
-                    const Divider(height: 20, thickness: 1),
-                    if (scanResult!.data!['name'] != null &&
-                        scanResult!.data!['name'].toString().isNotEmpty)
-                      Row(
-                        children: [
-                          const Icon(Icons.person, size: 18, color: Colors.grey),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              scanResult!.data!['name'].toString().toUpperCase(),
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
-                                color: AppColors.textPrimary,
-                              ),
-                            ),
-                          ),
-                        ],
+                  const SizedBox(height: 24),
+                  
+                  // Title
+                  Text(
+                    scanResult!.message.toUpperCase(),
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.w900,
+                      color: Colors.white,
+                      letterSpacing: 1.2,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Name & Org
+                  if (scanResult!.data != null && scanResult!.data!['name'] != null)
+                    Text(
+                      scanResult!.data!['name'].toString().toUpperCase(),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
                       ),
-                    if (scanResult!.data!['organization'] != null &&
-                        scanResult!.data!['organization'].toString().isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          const Icon(Icons.business, size: 18, color: Colors.grey),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              scanResult!.data!['organization'].toString(),
-                              style: const TextStyle(
-                                fontSize: 14,
-                                color: AppColors.textSecondary,
-                              ),
-                            ),
-                          ),
-                        ],
+                    ),
+                  if (scanResult!.data != null && scanResult!.data!['organization'] != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      scanResult!.data!['organization'].toString(),
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white.withValues(alpha: 0.9),
                       ),
-                    ],
-                    if (scanResult!.data!['details'] != null &&
-                        scanResult!.data!['details'].toString().isNotEmpty) ...[
-                      const SizedBox(height: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: borderColor.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Text(
-                          scanResult!.data!['details'].toString(),
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: borderColor,
-                          ),
-                        ),
-                      ),
-                    ],
+                    ),
                   ],
+
+                  // Details/Message
+                  const SizedBox(height: 24),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+                    ),
+                    child: Text(
+                      scanResult!.data?['details']?.toString() ?? scanResult!.message,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                  
+                  const Spacer(),
+                  
+                  // Next QR Button
+                  if (onDismiss != null)
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: onDismiss,
+                        icon: const Text('Next QR', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                        label: const Icon(Icons.arrow_forward),
+                        style: ElevatedButton.styleFrom(
+                          foregroundColor: statusBgColor,
+                          backgroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          elevation: 8,
+                        ),
+                      ),
+                    ),
+                  const SizedBox(height: 8),
+                  if (onDismiss != null)
+                    const Text(
+                      'Press Next QR to scan the next attendee',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.white70,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -216,4 +190,59 @@ class ScanHudOverlay extends StatelessWidget {
       ],
     );
   }
+}
+
+/// Hardware-accelerated, zero-flicker overlay painter that uses the even-odd
+/// path fill rule to punch out a centered viewfinder hole without GPU blend mode passes.
+class ScannerOverlayPainter extends CustomPainter {
+  final Color overlayColor;
+  final double cutoutSize;
+  final double borderRadius;
+  final Color borderColor;
+  final double borderWidth;
+
+  const ScannerOverlayPainter({
+    this.overlayColor = const Color(0x80000000), // 50% opacity black
+    this.cutoutSize = 260.0,
+    this.borderRadius = 20.0,
+    this.borderColor = Colors.white54,
+    this.borderWidth = 3.5,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final backgroundRect = Rect.fromLTWH(0, 0, size.width, size.height);
+    final cutoutRect = Rect.fromCenter(
+      center: Offset(size.width / 2, size.height / 2),
+      width: cutoutSize,
+      height: cutoutSize,
+    );
+    final cutoutRRect = RRect.fromRectAndRadius(
+      cutoutRect,
+      Radius.circular(borderRadius),
+    );
+
+    // 1. Draw darkened overlay with clean transparent cutout using even-odd fill rule
+    final overlayPaint = Paint()
+      ..color = overlayColor
+      ..style = PaintingStyle.fill;
+
+    final path = Path()
+      ..fillType = PathFillType.evenOdd
+      ..addRect(backgroundRect)
+      ..addRRect(cutoutRRect);
+
+    canvas.drawPath(path, overlayPaint);
+
+    // 2. Draw border around viewfinder cutout
+    final borderPaint = Paint()
+      ..color = borderColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = borderWidth;
+
+    canvas.drawRRect(cutoutRRect, borderPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant ScannerOverlayPainter oldDelegate) => false;
 }

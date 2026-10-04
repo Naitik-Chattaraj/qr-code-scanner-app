@@ -12,13 +12,23 @@ class SyncService {
   final Connectivity _connectivity = Connectivity();
 
   bool _isSyncing = false;
+  bool _isOnlineState = true; // Assume online until proven otherwise
   Timer? _periodicSyncTimer;
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
 
   Future<void> initialize() async {
+    // Initial check
+    try {
+      final results = await _connectivity.checkConnectivity();
+      _isOnlineState = results.any((r) => r != ConnectivityResult.none);
+    } catch (_) {
+      _isOnlineState = false;
+    }
+
     // Listen for connectivity changes
     _connectivitySubscription = _connectivity.onConnectivityChanged.listen((List<ConnectivityResult> results) {
-      if (results.any((r) => r != ConnectivityResult.none)) {
+      _isOnlineState = results.any((r) => r != ConnectivityResult.none);
+      if (_isOnlineState) {
         syncData();
       }
     });
@@ -35,13 +45,13 @@ class SyncService {
     _periodicSyncTimer?.cancel();
   }
 
+  // Synchronous online check to reduce scan latency
+  bool isOnlineSync() {
+    return _isOnlineState;
+  }
+
   Future<bool> isOnline() async {
-    try {
-      final results = await _connectivity.checkConnectivity();
-      return results.any((r) => r != ConnectivityResult.none);
-    } catch (_) {
-      return false;
-    }
+    return _isOnlineState;
   }
 
   Future<void> syncData() async {

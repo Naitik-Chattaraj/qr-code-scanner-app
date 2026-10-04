@@ -22,7 +22,11 @@ class ScannerScreen extends StatefulWidget {
 }
 
 class _ScannerScreenState extends State<ScannerScreen> {
-  final MobileScannerController _controller = MobileScannerController();
+  final MobileScannerController _controller = MobileScannerController(
+    formats: const [BarcodeFormat.qrCode],
+    detectionSpeed: DetectionSpeed.normal,
+    detectionTimeoutMs: 300,
+  );
   final AudioService _audioService = AudioService();
   final SupabaseService _supabaseService = SupabaseService();
   final SyncService _syncService = SyncService();
@@ -64,13 +68,13 @@ class _ScannerScreenState extends State<ScannerScreen> {
   }
 
   Future<void> _handleScan(BarcodeCapture capture) async {
-    if (_isProcessing || capture.barcodes.isEmpty) return;
+    if (_isProcessing || _lastResult != null || capture.barcodes.isEmpty) return;
 
     final String? rawData = capture.barcodes.first.rawValue;
     if (rawData == null || rawData.trim().isEmpty) return;
 
-    final String ticketId = QrParser.extractParticipantId(rawData);
-    if (ticketId.isEmpty) {
+    final QrPayload payload = QrParser.parsePayload(rawData);
+    if (payload.participantId.isEmpty) {
       _showError('Invalid QR Code: No ticket or participant identifier found.');
       return;
     }
@@ -81,41 +85,44 @@ class _ScannerScreenState extends State<ScannerScreen> {
     });
 
     try {
-      final isOnline = await _syncService.isOnline() && SupabaseService.isConfigured;
+      final isOnline = _syncService.isOnlineSync() && SupabaseService.isConfigured;
 
       if (_mode == 'registration') {
-        await _handleCheckIn(ticketId, isOnline);
+        await _handleCheckIn(payload, isOnline);
       } else {
-        await _handleMealScan(ticketId, isOnline);
+        await _handleMealScan(payload, isOnline);
       }
     } catch (e) {
-      _handleGeneralError(e, ticketId);
+      _handleGeneralError(e, payload.participantId);
     } finally {
-      if (mounted) {
+      if (mounted && _isProcessing) {
         setState(() => _isProcessing = false);
       }
-      // Auto-clear result after 3.5 seconds
-      Future.delayed(const Duration(milliseconds: 3500), () {
-        if (mounted) setState(() => _lastResult = null);
-      });
     }
   }
 
-  Future<void> _handleCheckIn(String ticketId, bool isOnline) async {
+  Future<void> _handleCheckIn(QrPayload payload, bool isOnline) async {
     if (isOnline) {
       try {
-        final res = await _supabaseService.checkInAttendee(ticketId);
+        final res = await _supabaseService.registerAttendee(
+          participantId: payload.participantId,
+          name: payload.name,
+          email: payload.email,
+          mobile: payload.mobileNumber,
+          organization: payload.organization,
+          eventId: payload.eventId,
+        );
         final status = (res['status'] ?? '').toString().toUpperCase();
-        final name = (res['name'] ?? 'Attendee').toString();
-        final org = (res['organization'] ?? '').toString();
+        final name = (res['name'] ?? payload.name ?? 'Attendee').toString();
+        final org = (res['organization'] ?? payload.organization ?? '').toString();
         final scannedAt = res['scanned_at']?.toString();
 
-        if (status == 'SUCCESS') {
+        if (status == 'SUCCESS' || status == 'REGISTRATION_SUCCESS') {
           _showSuccess(
             'Check-in Successful',
             {'name': name, 'organization': org, 'details': 'Welcome to AICSSYC 2026!'},
           );
-        } else if (status == 'ALREADY_USED') {
+        } else if (status == 'ALREADY_USED' || status == 'ALREADY_REGISTERED') {
           final timeStr = _formatTimestamp(scannedAt);
           _showWarning(
             'Already Checked In',
@@ -136,10 +143,11 @@ class _ScannerScreenState extends State<ScannerScreen> {
     }
 
     // Offline check-in logic
-    await _handleOfflineCheckIn(ticketId);
+    await _handleOfflineCheckIn(payload);
   }
 
-  Future<void> _handleOfflineCheckIn(String ticketId) async {
+  Future<void> _handleOfflineCheckIn(QrPayload payload) async {
+    final ticketId = payload.participantId;
     final participant = await _localDb.getParticipant(ticketId);
     if (participant == null) {
       _showError('Badge Not Found: No matching participant in offline cache.');
@@ -190,7 +198,8 @@ class _ScannerScreenState extends State<ScannerScreen> {
     }
   }
 
-  Future<void> _handleMealScan(String ticketId, bool isOnline) async {
+  Future<void> _handleMealScan(QrPayload payload, bool isOnline) async {
+    final ticketId = payload.participantId;
     if (isOnline) {
       try {
         final res = await _supabaseService.verifyMealAccess(
@@ -198,8 +207,8 @@ class _ScannerScreenState extends State<ScannerScreen> {
           sessionName: _selectedMealSession,
         );
         final status = (res['status'] ?? '').toString().toUpperCase();
-        final name = (res['name'] ?? 'Attendee').toString();
-        final org = (res['organization'] ?? '').toString();
+        final name = (res['name'] ?? payload.name ?? 'Attendee').toString();
+        final org = (res['organization'] ?? payload.organization ?? '').toString();
         final scannedAt = res['scanned_at']?.toString();
 
         if (status == 'SUCCESS') {
@@ -223,6 +232,8 @@ class _ScannerScreenState extends State<ScannerScreen> {
                   : 'Already claimed for this session',
             },
           );
+        } else if (status == 'NOT_REGISTERED') {
+          _showError('Not Registered: Must check in at the Main Desk before accessing meals.');
         } else {
           final message = res['message']?.toString() ?? 'Invalid ticket or meal access expired.';
           _showError('Access Denied: $message');
@@ -234,10 +245,11 @@ class _ScannerScreenState extends State<ScannerScreen> {
     }
 
     // Offline meal verification logic
-    await _handleOfflineMeal(ticketId);
+    await _handleOfflineMeal(payload);
   }
 
-  Future<void> _handleOfflineMeal(String ticketId) async {
+  Future<void> _handleOfflineMeal(QrPayload payload) async {
+    final ticketId = payload.participantId;
     final participant = await _localDb.getParticipant(ticketId);
     if (participant == null) {
       _showError('Badge Not Found: No participant record found offline.');
@@ -297,19 +309,34 @@ class _ScannerScreenState extends State<ScannerScreen> {
   void _showSuccess(String title, [Map<String, dynamic>? data]) {
     _audioService.playSuccess();
     HapticsService.success();
-    setState(() => _lastResult = ScanResultData.success(title, data ?? {}));
+    if (mounted) {
+      setState(() {
+        _isProcessing = false;
+        _lastResult = ScanResultData.success(title, data ?? {});
+      });
+    }
   }
 
   void _showWarning(String title, [Map<String, dynamic>? data]) {
     _audioService.playWarning();
     HapticsService.warning();
-    setState(() => _lastResult = ScanResultData.warning(title, data));
+    if (mounted) {
+      setState(() {
+        _isProcessing = false;
+        _lastResult = ScanResultData.warning(title, data);
+      });
+    }
   }
 
   void _showError(String title) {
     _audioService.playError();
     HapticsService.error();
-    setState(() => _lastResult = ScanResultData.error(title));
+    if (mounted) {
+      setState(() {
+        _isProcessing = false;
+        _lastResult = ScanResultData.error(title);
+      });
+    }
   }
 
   @override
@@ -411,13 +438,18 @@ class _ScannerScreenState extends State<ScannerScreen> {
           Expanded(
             child: Stack(
               children: [
-                MobileScanner(
-                  controller: _controller,
-                  onDetect: _handleScan,
+                RepaintBoundary(
+                  child: MobileScanner(
+                    controller: _controller,
+                    onDetect: _handleScan,
+                  ),
                 ),
-                ScanHudOverlay(
-                  isProcessing: _isProcessing,
-                  scanResult: _lastResult,
+                RepaintBoundary(
+                  child: ScanHudOverlay(
+                    isProcessing: _isProcessing,
+                    scanResult: _lastResult,
+                    onDismiss: () => setState(() => _lastResult = null),
+                  ),
                 ),
               ],
             ),
