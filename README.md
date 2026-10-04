@@ -30,7 +30,7 @@ Edit `.env` with your project's configuration:
 ```env
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_KEY=your-supabase-key-or-service-role-key
-TEAM_PASSCODE=event2026
+TEAM_PASSCODE=Your Password
 ```
 
 > **Security Note**: Never commit `.env` or sensitive keys to version control. The `.gitignore` file is pre-configured to ignore `.env`, `.env.*`, and keystore files.
