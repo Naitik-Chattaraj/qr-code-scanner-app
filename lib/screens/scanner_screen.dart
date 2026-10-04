@@ -211,8 +211,8 @@ class _ScannerScreenState extends State<ScannerScreen> {
           email: participant.email,
           mobileNumber: participant.mobileNumber,
           organization: participant.organization,
-          isRegistered: participant.isRegistered,
-          registeredAt: participant.registeredAt,
+          isRegistered: true,
+          registeredAt: participant.registeredAt ?? nowUtc,
           scannedAt: nowUtc,
           scannedBy: _deviceId,
           dinnerStatus: participant.dinnerStatus,
@@ -220,8 +220,15 @@ class _ScannerScreenState extends State<ScannerScreen> {
         ),
       );
 
-      // Queue for background sync
-      await _localDb.addToQueue('verify_and_checkin', {'p_id': ticketId});
+      // Queue for background sync with full participant info
+      await _localDb.addToQueue('register_attendee', {
+        'p_id': ticketId,
+        'p_name': participant.name,
+        'p_email': participant.email,
+        'p_mobile': participant.mobileNumber,
+        'p_org': participant.organization,
+        'p_event_id': participant.eventId,
+      });
 
       _showSuccess(
         'Check-in Verified (Offline)',
@@ -298,6 +305,11 @@ class _ScannerScreenState extends State<ScannerScreen> {
     final participant = await _localDb.getParticipant(ticketId);
     if (participant == null) {
       _showError('Badge Not Found: No participant record found offline.');
+      return;
+    }
+
+    if (!participant.isRegistered && participant.scannedAt == null) {
+      _showError('Not Registered: Must check in at the Main Desk before accessing meals.');
       return;
     }
 

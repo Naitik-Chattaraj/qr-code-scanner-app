@@ -137,7 +137,7 @@ class SupabaseService {
   }
 
   /// Check-in attendee at registration desk
-  /// Uses live Supabase RPC: verify_and_checkin(p_id, scanner_id)
+  /// Uses live Supabase RPC: register_attendee
   Future<Map<String, dynamic>> checkInAttendee(String participantId) async {
     if (!isConfigured && Config.supabaseKey.isNotEmpty) {
       await initialize();
@@ -148,10 +148,15 @@ class SupabaseService {
     final deviceId = await _deviceService.getDeviceId();
 
     final response = await client.rpc(
-      'verify_and_checkin',
+      'register_attendee',
       params: {
         'p_id': participantId,
-        'scanner_id': deviceId,
+        'p_name': null,
+        'p_email': null,
+        'p_mobile': null,
+        'p_org': null,
+        'p_event_id': null,
+        'p_scanner_id': deviceId,
       },
     );
     return Map<String, dynamic>.from(response as Map);

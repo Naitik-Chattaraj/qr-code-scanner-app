@@ -21,7 +21,7 @@ class LocalDatabase {
 
     return await openDatabase(
       path,
-      version: 2,
+      version: 3,
       onCreate: _createDB,
       onUpgrade: _upgradeDB,
     );
@@ -47,13 +47,15 @@ class LocalDatabase {
     ''');
 
     // Meal redemptions table matching live Supabase meal_redemptions
+    // Uses composite PRIMARY KEY (participant_id, meal_session) to strictly prevent duplicates
     await db.execute('''
       CREATE TABLE meal_redemptions (
-        id TEXT PRIMARY KEY,
-        participant_id TEXT,
-        meal_session TEXT,
+        id TEXT,
+        participant_id TEXT NOT NULL,
+        meal_session TEXT NOT NULL,
         scanned_at TEXT,
-        scanned_by TEXT
+        scanned_by TEXT,
+        PRIMARY KEY (participant_id, meal_session)
       )
     ''');
 
@@ -74,6 +76,31 @@ class LocalDatabase {
       await db.execute('DROP TABLE IF EXISTS meal_redemptions');
       await db.execute('DROP TABLE IF EXISTS sync_queue');
       await _createDB(db, newVersion);
+      return;
+    }
+
+    if (oldVersion < 3) {
+      // Deduplicate and migrate meal_redemptions table to have (participant_id, meal_session) as primary key
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS meal_redemptions_v3 (
+          id TEXT,
+          participant_id TEXT NOT NULL,
+          meal_session TEXT NOT NULL,
+          scanned_at TEXT,
+          scanned_by TEXT,
+          PRIMARY KEY (participant_id, meal_session)
+        )
+      ''');
+      try {
+        await db.execute('''
+          INSERT OR REPLACE INTO meal_redemptions_v3 (id, participant_id, meal_session, scanned_at, scanned_by)
+          SELECT id, participant_id, meal_session, scanned_at, scanned_by 
+          FROM meal_redemptions
+          GROUP BY participant_id, meal_session
+        ''');
+        await db.execute('DROP TABLE meal_redemptions');
+      } catch (_) {}
+      await db.execute('ALTER TABLE meal_redemptions_v3 RENAME TO meal_redemptions');
     }
   }
 
@@ -112,11 +139,10 @@ class LocalDatabase {
 
   Future<void> updateParticipant(Participant participant) async {
     final db = await instance.database;
-    await db.update(
+    await db.insert(
       'event_participants',
       participant.toJson(),
-      where: 'participant_id = ?',
-      whereArgs: [participant.participantId],
+      conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }
 
@@ -135,6 +161,33 @@ class LocalDatabase {
   Future<void> clearMealRedemptions() async {
     final db = await instance.database;
     await db.delete('meal_redemptions');
+  }
+
+  Future<List<Map<String, dynamic>>> getAllMealRedemptions() async {
+    final db = await instance.database;
+    return await db.query('meal_redemptions');
+  }
+
+  Future<void> replaceMealRedemptions(List<Map<String, dynamic>> redemptions) async {
+    final db = await instance.database;
+    await db.transaction((txn) async {
+      await txn.delete('meal_redemptions');
+      final batch = txn.batch();
+      for (var r in redemptions) {
+        batch.insert(
+          'meal_redemptions',
+          {
+            'id': r['id']?.toString() ?? '',
+            'participant_id': r['participant_id']?.toString() ?? '',
+            'meal_session': r['meal_session']?.toString() ?? '',
+            'scanned_at': r['scanned_at']?.toString() ?? '',
+            'scanned_by': r['scanned_by']?.toString() ?? '',
+          },
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+      await batch.commit(noResult: true);
+    });
   }
 
   Future<void> insertMealRedemptions(List<Map<String, dynamic>> redemptions) async {
@@ -212,6 +265,33 @@ class LocalDatabase {
           await db.rawQuery('SELECT COUNT(*) FROM meal_redemptions'),
         ) ??
         0;
+  }
+
+  Future<List<Map<String, dynamic>>> getMealSessionBreakdown() async {
+    final db = await instance.database;
+    final results = await db.rawQuery('''
+      SELECT meal_session, COUNT(*) as count 
+      FROM meal_redemptions 
+      GROUP BY meal_session
+    ''');
+    return results;
+  }
+
+  Future<List<Participant>> getAllParticipants() async {
+    final db = await instance.database;
+    final maps = await db.query('event_participants');
+    return maps.map((map) => Participant.fromJson(map)).toList();
+  }
+
+  Future<List<String>> getParticipantRedemptions(String participantId) async {
+    final db = await instance.database;
+    final results = await db.query(
+      'meal_redemptions',
+      columns: ['meal_session'],
+      where: 'participant_id = ?',
+      whereArgs: [participantId],
+    );
+    return results.map((row) => row['meal_session'] as String).toList();
   }
 
   // --- Sync Queue ---

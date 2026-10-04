@@ -1,15 +1,11 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:qrcode_scanner/core/constants/config.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-class _AllowRealHttp extends HttpOverrides {
-  @override
-  HttpClient createHttpClient(SecurityContext? context) {
-    return super.createHttpClient(context);
-  }
-}
+class _AllowRealHttp extends HttpOverrides {}
 
 void main() {
   test('Supabase live connection test with Config credentials', () async {
@@ -30,8 +26,7 @@ void main() {
         .select('participant_id')
         .limit(5);
 
-    expect(response is List, true);
-    expect((response as List).isNotEmpty, true);
-    print('Successfully connected to Supabase! Fetched ${(response as List).length} sample records.');
+    expect(response.isNotEmpty, true);
+    debugPrint('Successfully connected to Supabase! Fetched ${response.length} sample records.');
   });
 }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../core/constants/app_colors.dart';
 
 class StatCard extends StatelessWidget {
   final String title;
@@ -19,12 +20,13 @@ class StatCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
+        color: AppColors.neutral900,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.neutral800),
         boxShadow: const [
           BoxShadow(
-            color: Colors.black12,
-            blurRadius: 4,
+            color: Colors.black38,
+            blurRadius: 8,
             offset: Offset(0, 2),
           ),
         ],
@@ -35,23 +37,34 @@ class StatCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(icon, color: color, size: 24),
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: color.withValues(alpha: 0.3)),
+                ),
+                child: Icon(icon, color: color, size: 20),
+              ),
               const Spacer(),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 10),
           Text(
             value,
             style: const TextStyle(
-              fontSize: 24,
+              fontSize: 22,
               fontWeight: FontWeight.bold,
+              color: Colors.white,
             ),
           ),
+          const SizedBox(height: 2),
           Text(
             title,
             style: const TextStyle(
               fontSize: 12,
-              color: Colors.grey,
+              fontWeight: FontWeight.w500,
+              color: AppColors.textSecondary,
             ),
           ),
         ],
