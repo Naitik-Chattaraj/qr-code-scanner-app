@@ -84,9 +84,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: AppColors.neutral950,
       appBar: AppBar(
-        title: const Text('Organizer Dashboard'),
-        backgroundColor: AppColors.surface,
+        title: const Text('Live Dashboard'),
+        backgroundColor: AppColors.neutral950,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.pop(context),
+        ),
         actions: [
           IconButton(
             tooltip: 'Sync Data',
@@ -107,7 +113,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
         ],
       ),
-      backgroundColor: AppColors.background,
       body: RefreshIndicator(
         onRefresh: () async {
           await Provider.of<SyncService>(context, listen: false).syncData();

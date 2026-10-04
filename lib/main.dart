@@ -42,9 +42,14 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'AICSSYC Scanner',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF00629B)),
-        useMaterial3: true,
+      theme: ThemeData.dark().copyWith(
+        scaffoldBackgroundColor: const Color(0xFF0A0A0A), // neutral-950
+        colorScheme: const ColorScheme.dark(
+          primary: Color(0xFF3B82F6),
+          secondary: Color(0xFF10B981),
+          surface: Color(0xFF171717), // neutral-900
+          error: Color(0xFFE11D48),
+        ),
       ),
       home: initialAuth ? const HomeScreen() : const LoginScreen(),
       debugShowCheckedModeBanner: false,

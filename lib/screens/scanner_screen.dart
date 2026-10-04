@@ -15,7 +15,12 @@ import '../widgets/scan_hud_overlay.dart';
 import '../core/database/local_database.dart';
 
 class ScannerScreen extends StatefulWidget {
-  const ScannerScreen({super.key});
+  final String initialMode;
+  
+  const ScannerScreen({
+    super.key,
+    this.initialMode = 'registration',
+  });
 
   @override
   State<ScannerScreen> createState() => _ScannerScreenState();
@@ -33,17 +38,29 @@ class _ScannerScreenState extends State<ScannerScreen> {
   final LocalDatabase _localDb = LocalDatabase.instance;
   final DeviceService _deviceService = DeviceService();
 
-  String _mode = 'registration'; // 'registration' or 'meal'
+  late String _mode;
   String _selectedMealSession = MealSessions.sessions.first;
   String _deviceId = '';
 
   bool _isProcessing = false;
   ScanResultData? _lastResult;
+  int _pendingSyncCount = 0;
 
   @override
   void initState() {
     super.initState();
+    _mode = widget.initialMode;
     _loadDeviceId();
+    _updatePendingCount();
+  }
+
+  Future<void> _updatePendingCount() async {
+    final queue = await _localDb.getQueue();
+    if (mounted) {
+      setState(() {
+        _pendingSyncCount = queue.length;
+      });
+    }
   }
 
   Future<void> _loadDeviceId() async {
@@ -98,6 +115,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
       if (mounted && _isProcessing) {
         setState(() => _isProcessing = false);
       }
+      _updatePendingCount();
     }
   }
 
@@ -341,98 +359,150 @@ class _ScannerScreenState extends State<ScannerScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final currentDropdownValue = _mode == 'registration' ? 'registration' : _selectedMealSession;
+    
     return Scaffold(
-      appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              _mode == 'registration' ? 'Registration Desk Scanner' : 'Meal Gate Scanner',
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
-            ),
-            if (_deviceId.isNotEmpty)
-              Text(
-                'Device ID: $_deviceId',
-                style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
-              ),
-          ],
-        ),
-        backgroundColor: AppColors.surface,
-        actions: [
-          IconButton(
-            tooltip: 'Toggle Flashlight',
-            icon: const Icon(Icons.flash_on, color: Colors.amber),
-            onPressed: () => _controller.toggleTorch(),
-          ),
-        ],
-      ),
+      backgroundColor: AppColors.neutral950,
       body: Column(
         children: [
-          // Station Mode Segmented Control
+          // Custom Web-Style Top Bar
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            color: AppColors.surface,
-            child: Row(
+            padding: EdgeInsets.only(
+              top: MediaQuery.of(context).padding.top + 12,
+              bottom: 12,
+              left: 12,
+              right: 12,
+            ),
+            decoration: BoxDecoration(
+              color: AppColors.neutral950.withValues(alpha: 0.9),
+              border: const Border(bottom: BorderSide(color: AppColors.neutral800)),
+            ),
+            child: Column(
               children: [
-                Expanded(
-                  child: SegmentedButton<String>(
-                    segments: const [
-                      ButtonSegment(
-                        value: 'registration',
-                        icon: Icon(Icons.person_pin_outlined),
-                        label: Text('Check-in'),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    // Back Button & Brand Logo
+                    Row(
+                      children: [
+                        InkWell(
+                          onTap: () => Navigator.pop(context),
+                          borderRadius: BorderRadius.circular(12),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: AppColors.neutral900,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: AppColors.neutral800),
+                            ),
+                            child: const Row(
+                              children: [
+                                Icon(Icons.arrow_back, size: 14, color: AppColors.textSecondary),
+                                SizedBox(width: 6),
+                                Text(
+                                  'Back',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: AppColors.textSecondary,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Image.asset(
+                          'assets/images/ieee-cs-logo.png',
+                          height: 24,
+                          color: Colors.white,
+                        ),
+                      ],
+                    ),
+                    
+                    // Offline Queue Status & Flashlight
+                    Row(
+                      children: [
+                        if (_pendingSyncCount > 0)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: AppColors.warning.withValues(alpha: 0.2),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: AppColors.warning.withValues(alpha: 0.4)),
+                            ),
+                            child: Text(
+                              'Syncing: $_pendingSyncCount',
+                              style: const TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.warning,
+                              ),
+                            ),
+                          ),
+                        const SizedBox(width: 8),
+                        IconButton(
+                          icon: const Icon(Icons.flash_on, color: Colors.amber, size: 20),
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                          onPressed: () => _controller.toggleTorch(),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                
+                // Mode / Session Selector Dropdown
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  decoration: BoxDecoration(
+                    color: AppColors.neutral900,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppColors.neutral800),
+                  ),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      value: currentDropdownValue,
+                      isExpanded: true,
+                      dropdownColor: AppColors.neutral900,
+                      icon: const Icon(Icons.keyboard_arrow_down, color: AppColors.textSecondary),
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
                       ),
-                      ButtonSegment(
-                        value: 'meal',
-                        icon: Icon(Icons.restaurant_outlined),
-                        label: Text('Meals'),
-                      ),
-                    ],
-                    selected: {_mode},
-                    onSelectionChanged: (Set<String> newSelection) {
-                      setState(() {
-                        _mode = newSelection.first;
-                        _lastResult = null;
-                      });
-                    },
+                      items: [
+                        const DropdownMenuItem(
+                          value: 'registration',
+                          child: Text('Station 1: Registration Check-in'),
+                        ),
+                        ...MealSessions.sessions.map((session) {
+                          return DropdownMenuItem(
+                            value: session,
+                            child: Text('Station 2: ${session.replaceAll('_', ' ')}'),
+                          );
+                        }),
+                      ],
+                      onChanged: (val) {
+                        if (val != null) {
+                          setState(() {
+                            if (val == 'registration') {
+                              _mode = 'registration';
+                            } else {
+                              _mode = 'meal';
+                              _selectedMealSession = val;
+                            }
+                            _lastResult = null;
+                          });
+                        }
+                      },
+                    ),
                   ),
                 ),
               ],
             ),
           ),
-
-          // Meal Session Picker (Shown only in meal mode)
-          if (_mode == 'meal')
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              color: AppColors.surface,
-              child: DropdownButtonFormField<String>(
-                initialValue: _selectedMealSession,
-                decoration: const InputDecoration(
-                  labelText: 'Active Meal Session',
-                  prefixIcon: Icon(Icons.fastfood, color: AppColors.ieeeBlue),
-                  border: OutlineInputBorder(),
-                  contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                ),
-                items: MealSessions.sessions.map((session) {
-                  return DropdownMenuItem(
-                    value: session,
-                    child: Text(
-                      session.replaceAll('_', ' '),
-                      style: const TextStyle(fontWeight: FontWeight.w500),
-                    ),
-                  );
-                }).toList(),
-                onChanged: (val) {
-                  if (val != null) {
-                    setState(() {
-                      _selectedMealSession = val;
-                      _lastResult = null;
-                    });
-                  }
-                },
-              ),
-            ),
 
           // Scanner Feed Viewfinder
           Expanded(
